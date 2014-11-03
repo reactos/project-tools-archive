@@ -1,8 +1,8 @@
 <?xml version='1.0' encoding='windows-1252'?>
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
 
-<Product Name='gnutls' Id='f40c1ebf-ff6b-47da-b5f4-b920b308eacb' UpgradeCode='eac01833-ca15-4089-9534-f2f2c9be283d'
-  Language='1033' Codepage='1252' Version='1.0.0' Manufacturer='ReactOS Project'>
+<Product Name='gnutls' Id='7798c106-af91-4f34-b26e-4e090df2ed28' UpgradeCode='eac01833-ca15-4089-9534-f2f2c9be283d'
+  Language='1033' Codepage='1252' Version='1.1.0' Manufacturer='ReactOS Project'>
   
   <Package Id='*' Keywords='Installer' Description="ReactOS GNUTLS Installer"
     Manufacturer='ReactOS Project' InstallerVersion='405' Compressed='yes' SummaryCodepage='1252' />
@@ -22,6 +22,7 @@
       <File Id="libgnutls" Source="libgnutls-28.dll" Checksum="yes" />
       <File Id="libhogweed" Source="libhogweed-2-5.dll" Checksum="yes" />
       <File Id="libnettle" Source="libnettle-4-7.dll" Checksum="yes" />
+      <File Id="libp11" Source="libp11-kit-0.dll" Checksum="yes" />
       <File Id="libwinpthread" Source="libwinpthread-1.dll" Checksum="yes" />
       <File Id="zlib" Source="zlib1.dll" Checksum="yes" />
     </Component>
