@@ -2,15 +2,25 @@
 
 # ====================================================================
 # commit-eol-style-check.pl: check that every added file with a specific
-# has the file name extension has the svn:eol-style property set. If any
+# file name extension has the svn:eol-style property set. If any
 # file fails this test the user is sent a verbose error message
 # suggesting solutions and the commit is aborted.
 #
 # Usage: commit-eol-style-check.pl REPOS TXN-NAME
 # ====================================================================
 # Copyright (c) 2007 Thomas Bluemel.  All rights reserved.
+# Copyright (c) 2014 Colin Finck.  All rights reserved.
 #
-# Based on commit-mime-type-check.pl
+# - Based on commit-mime-type-check.pl, r1644863
+#   https://svn.apache.org/repos/asf/subversion/trunk/contrib/hook-scripts/check-mime-type.pl
+# - Patched with check-mime-type-2.patch from
+#   http://mail-archives.apache.org/mod_mbox/subversion-dev/201403.mbox/%3C1576503.m6XB7udPXQ@hurry.speechfxinc.com%3E
+#   to support Subversion 1.8.x
+#
+# ====================================================================
+# Most of commit-mime-type-check.pl was taken from
+# commit-access-control.pl, Revision 9986, 2004-06-14 16:29:22 -0400.
+# ====================================================================
 # Copyright (c) 2000-2004 CollabNet.  All rights reserved.
 #
 # This software is licensed as described in the file COPYING, which
@@ -34,7 +44,6 @@ BEGIN {
 
 use strict;
 use Carp;
-
 
 ######################################################################
 # Configuration section.
@@ -74,82 +83,70 @@ my $svnlook = "/usr/bin/svnlook";
 
 my $repos        = shift;
 my $txn          = shift;
+my $err_msg = "$0: repository directory `$repos' ";
 
-unless (-e $repos)
-  {
-    &usage("$0: repository directory `$repos' does not exist.");
-  }
-unless (-d $repos)
-  {
-    &usage("$0: repository directory `$repos' is not a directory.");
-  }
-
-# Define two constant subroutines to stand for read-only or read-write
-# access to the repository.
-sub ACCESS_READ_ONLY  () { 'read-only' }
-sub ACCESS_READ_WRITE () { 'read-write' }
-
+&usage("$err_msg does not exist.") unless (-e $repos);
+&usage("$err_msg is not a directory.") unless (-d $repos);
 
 ######################################################################
 # Harvest data using svnlook.
 
-# Change into /tmp so that svnlook diff can create its .svnlook
-# directory.
-my $tmp_dir = '/tmp';
-chdir($tmp_dir)
-  or die "$0: cannot chdir `$tmp_dir': $!\n";
-
-# Figure out what files have added using svnlook.
-my @files_added;
-foreach my $line (&read_from_process($svnlook, 'changed', $repos, '-t', $txn))
-  {
-		# Add only files that were added to @files_added
-    if ($line =~ /^A.  (.*[^\/])$/)
-      {
-        push(@files_added, $1);
-      }
-  }
+# Figure out what files have added/modified properties using svnlook.
+my @paths_to_check;
+my $props_changed_re = qr/^(?:A |[U_ ]U)  (.*[^\/])$/;
+foreach my $line (&read_from_process($svnlook, 'changed', $repos, '-t', $txn)) {
+    if ($line =~ /$props_changed_re/) {
+        push(@paths_to_check, $1);
+    }
+}
 
 my @errors;
-foreach my $path ( @files_added )
-	{
-		my $mime_type;
-		my $eol_style;
 
-		# Parse the complete list of property values of the file $path to extract
-		# the eol-style
-		foreach my $prop (&read_from_process($svnlook, 'proplist', $repos, '-t',
-		                  $txn, '--verbose', $path))
-			{
-				if ($prop =~ /^\s*svn:mime-type : (\S+)/)
-					{
-						$mime_type = $1;
-					}
-				if ($prop =~ /^\s*svn:eol-style : (\S+)/)
-					{
-						$eol_style = $1;
-					}
-			}
+# We are using 'svnlook propget' here instead of 'svnlook proplist'
+# because the output of 'svnlook proplist' without --xml could be ambiguous
+# with multiline properties.
+my @properties = ('svn:mime-type', 'svn:eol-style');
+my $mime_text_re = qr/^text\//;
+my $mime_application_re = qr/^application\//;
+my $proplist_name_re = qr/^  (.*)$/;
+my $properties_pat = '(?:' . join('|', map {quotemeta} @properties) . ')'; 
+my $grep_re = qr/^$properties_pat$/;
 
-		# Detect error conditions and add them to @errors
-		if (not $eol_style)
-			{
-				if ($mime_type and $mime_type =~ /^text\//)
-					{
-						push @errors, "$path : svn:mime-type indicates a text file but svn:eol-style is not set";
-					}
-				else
-					{
-						if ($path =~ /\.(c|cpp|cxx|h|hpp|hxx|rc|in|spec|mak|jam|s|asm|ini|txt|patch|bat|cmd|sh|pl|py|def|rbuild|xml|html|css|manifest|dsp|dsw|sln|vcproj)$/i)
-							{
-								if (not ($mime_type and $mime_type =~ /^application\//))
-									{
-										push @errors, "$path : svn:eol-style is not set";
-									}
-							}
-					}
-			}
-	}
+foreach my $path ( @paths_to_check ) {
+
+    my %prop_map = ();
+
+    # See what properties we do have
+    my @path_props = &read_from_process($svnlook, 'proplist', $repos, '-t', $txn, '--', $path);
+
+    # filter out only the ones we care about
+    my @filtered = grep {/$grep_re/} map { $_ =~ s/$proplist_name_re/$1/; $_; } @path_props;
+
+    # Grab filtered properties
+    foreach my $prop (@filtered) {
+        $prop_map{$prop} = join("\n", &read_from_process($svnlook, 'propget', $repos,
+                                                         $prop, '-t', $txn, '--', $path));
+    }
+    
+    # Detect error conditions and add them to @errors
+    if (not $prop_map{$properties[1]})
+    {
+        if ($prop_map{$properties[0]} and $prop_map{$properties[0]} =~ /$mime_text_re/)
+        {
+            push @errors, "$path : svn:mime-type indicates a text file but svn:eol-style is not set";
+        }
+        else
+        {
+            if ($path =~ /\.(c|cpp|cxx|h|hpp|hxx|rc|in|spec|mak|jam|s|asm|ini|txt|patch|bat|cmd|sh|pl|py|def|rbuild|xml|html|css|manifest|dsp|dsw|sln|vcproj)$/i)
+            {
+                if (not ($prop_map{$properties[0]} and $prop_map{$properties[0]} =~ /$mime_application_re/))
+                {
+                    push @errors, "$path : svn:eol-style is not set";
+                }
+            }
+        }
+    }
+}
 
 # If there are any errors list the problem files and give information
 # on how to avoid the problem. Hopefully people will set up auto-props
@@ -158,7 +155,7 @@ if (@errors)
   {
     warn "$0:\n\n",
          join("\n", @errors), "\n\n",
-				 <<EOS;
+         <<EOS;
     Every added file that has the svn:mime-type property set to text
     must also have a svn:eol-style property set. All other files with
     a certain file extension that typically indicates a text file
@@ -194,7 +191,7 @@ sub safe_read_from_pipe
       croak "$0: safe_read_from_pipe passed no arguments.\n";
     }
   print "Running @_\n";
-  my $pid = open(SAFE_READ, '-|');
+  my $pid = open(SAFE_READ, '-|', @_);
   unless (defined $pid)
     {
       die "$0: cannot fork: $!\n";
