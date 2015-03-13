@@ -43,5 +43,5 @@ for f in changed:
 
 # Pass all this information to "buildbot sendchange"
 if files:
-    p = subprocess.Popen("buildbot sendchange %s --logfile - --master %s --repository %s --revision %s --who %s --vc svn %s" % (category_arg, master, repo, rev, author, files), stdin=subprocess.PIPE)
+    p = subprocess.Popen("buildbot sendchange %s --logfile - --master %s --repository %s --revision %s --who %s --vc svn %s" % (category_arg, master, repo, rev, author, files), stdin=subprocess.PIPE, shell=True)
     p.communicate(input=log.encode())
