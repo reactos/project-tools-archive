@@ -36,8 +36,8 @@ category_arg = ""
 files = ""
 
 for f in changed:
-    if f.startswith("trunk"):
-        files += f + " "
+    if f.startswith("trunk/reactos") or f.startswith("trunk/rostests"):
+        files += '"' + f + '" '
         if f.startswith("trunk/rostests"):
             category_arg = "--category rostests"
 
